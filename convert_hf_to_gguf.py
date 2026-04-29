@@ -8562,6 +8562,8 @@ class Olmo2Model(TextModel):
             self.gguf_writer.add_sliding_window_pattern(sliding_window_pattern)
 
 
+
+
 @ModelBase.register("OlmoeForCausalLM")
 class OlmoeModel(TextModel):
     model_arch = gguf.MODEL_ARCH.OLMOE
@@ -8615,6 +8617,82 @@ class OlmoeModel(TextModel):
             if len(experts) > 0:
                 raise ValueError(f"Unprocessed experts: {experts}")
 
+
+
+
+@ModelBase.register("LizzyForCausalLM")
+class LizzyModel(TextModel):
+    """Converter for Lizzy models."""
+    model_arch = gguf.MODEL_ARCH.LIZZY
+
+    def prepare_metadata(self, vocab_only: bool):
+        """Set Lizzy-specific metadata - override ALL defaults."""
+        # Get parameter counts
+        total_params, shared_params, expert_params, expert_count = self.gguf_writer.get_total_parameter_count()
+        
+        # Load metadata (may be empty if no model card)
+        self.metadata = gguf.Metadata.load(self.metadata_override, self.dir_model_card, self.model_name, total_params)
+        
+        # OVERRIDE with Lizzy-specific values BEFORE writing to GGUF
+        # We write directly to gguf_writer to ensure values are used
+        self.gguf_writer.add_name("Lizzy 7B")
+        self.gguf_writer.add_author("Flower Labs")
+        self.gguf_writer.add_organization("Flower Labs")
+        self.gguf_writer.add_version("1.0")
+        self.gguf_writer.add_finetune("Lizzy-7B")
+        self.gguf_writer.add_basename("lizzy")
+        self.gguf_writer.add_size_label("7B")
+        self.gguf_writer.add_license("apache-2.0")
+        self.gguf_writer.add_description("Lizzy 7B is a reasoning-enhanced language model with British knowledge and behavior enhancements.")
+        self.gguf_writer.add_url("https://huggingface.co/flwrlabs/Lizzy-7B")
+        self.gguf_writer.add_tags(["lizzy", "reasoning", "text-generation", "flwrlabs", "british-english", "conversational"])
+        
+        # Set file type
+        if self.ftype in (gguf.LlamaFileType.ALL_F32, gguf.LlamaFileType.MOSTLY_F16, gguf.LlamaFileType.MOSTLY_BF16):
+            if hasattr(self, '_is_nvfp4') and self._is_nvfp4:
+                self.ftype = gguf.LlamaFileType.MOSTLY_NVFP4
+            elif hasattr(self, '_is_mxfp4') and self._is_mxfp4:
+                self.ftype = gguf.LlamaFileType.MOSTLY_MXFP4_MOE
+        
+        # Write metadata to GGUF
+        self.set_type()
+        logger.info("Set Lizzy meta model with custom metadata (direct gguf_writer)")
+        
+        logger.info("Set Lizzy model parameters")
+        self.set_gguf_parameters()
+        
+        logger.info("Set model quantization version")
+        self.gguf_writer.add_quantization_version(gguf.GGML_QUANT_VERSION)
+
+
+    def set_gguf_parameters(self):
+        super().set_gguf_parameters()
+        
+        # Add sliding window if present
+        if "sliding_window" in self.hparams:
+            self.gguf_writer.add_sliding_window(self.hparams["sliding_window"])
+        
+        # Add sliding window pattern for mixed attention types
+        if "layer_types" in self.hparams:
+            sliding_window_pattern = [t == "sliding_attention" for t in self.hparams["layer_types"]]
+            self.gguf_writer.add_sliding_window_pattern(sliding_window_pattern)
+
+    def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
+        """Handle Lizzy-specific tensor names including post-norm layers."""
+        # Map Lizzy-specific tensor names
+        if name.endswith(".post_attn_norm.weight"):
+            # Convert to standard post attention norm name
+            new_name = name.replace(".post_attn_norm.weight", ".attn_post_norm.weight")
+            yield new_name, data_torch
+            return
+        if name.endswith(".post_mlp_norm.weight"):
+            # Convert to standard post ffn norm name  
+            new_name = name.replace(".post_mlp_norm.weight", ".ffn_post_norm.weight")
+            yield new_name, data_torch
+            return
+        
+        # Use default mapping for other tensors
+        yield from super().modify_tensors(data_torch, name, bid)
 
 @ModelBase.register("JinaBertModel", "JinaBertForMaskedLM")
 class JinaBertV2Model(BertModel):

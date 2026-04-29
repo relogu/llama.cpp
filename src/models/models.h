@@ -472,6 +472,11 @@ struct llm_build_olmoe : public llm_graph_context {
     llm_build_olmoe(const llama_model & model, const llm_graph_params & params);
 };
 
+template <bool iswa>
+struct llm_build_lizzy : public llm_graph_context {
+    llm_build_lizzy(const llama_model & model, const llm_graph_params & params);
+};
+
 struct llm_build_olmo : public llm_graph_context {
     llm_build_olmo(const llama_model & model, const llm_graph_params & params);
 };

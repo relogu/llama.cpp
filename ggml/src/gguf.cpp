@@ -819,6 +819,7 @@ struct gguf_context * gguf_init_from_file_ptr(FILE * file, struct gguf_init_para
             ok = ok && cur != nullptr;
 
             if (!ok) {
+                GGML_LOG_ERROR("%s: failed to create tensor %zu/%zu: %s\n", __func__, i, ctx->info.size(), info.t.name);
                 break;
             }
 
