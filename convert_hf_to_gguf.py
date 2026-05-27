@@ -8653,6 +8653,32 @@ class LizzyModel(TextModel):
                 self.ftype = gguf.LlamaFileType.MOSTLY_NVFP4
             elif hasattr(self, '_is_mxfp4') and self._is_mxfp4:
                 self.ftype = gguf.LlamaFileType.MOSTLY_MXFP4_MOE
+
+        output_type: str = self.ftype.name.partition("_")[2]
+        if self.fname_out.is_dir():
+            if not vocab_only:
+                fname_default: str = gguf.naming_convention(
+                    self.metadata.name,
+                    "lizzy",
+                    "Lizzy-7B",
+                    "1.0",
+                    "7B",
+                    output_type,
+                    model_type="LoRA" if total_params < 0 else None,
+                )
+            else:
+                fname_default = gguf.naming_convention(
+                    self.metadata.name,
+                    "lizzy",
+                    "Lizzy-7B",
+                    "1.0",
+                    size_label=None,
+                    output_type=None,
+                    model_type="vocab",
+                )
+            self.fname_out = self.fname_out / f"{fname_default}.gguf"
+        else:
+            self.fname_out = self.fname_out.parent / gguf.fill_templated_filename(self.fname_out.name, output_type)
         
         # Write metadata to GGUF
         self.set_type()
@@ -8663,6 +8689,9 @@ class LizzyModel(TextModel):
         
         logger.info("Set model quantization version")
         self.gguf_writer.add_quantization_version(gguf.GGML_QUANT_VERSION)
+
+        logger.info("Set model tokenizer")
+        self.set_vocab()
 
 
     def set_gguf_parameters(self):
@@ -8681,13 +8710,17 @@ class LizzyModel(TextModel):
         """Handle Lizzy-specific tensor names including post-norm layers."""
         # Map Lizzy-specific tensor names
         if name.endswith(".post_attn_norm.weight"):
-            # Convert to standard post attention norm name
-            new_name = name.replace(".post_attn_norm.weight", ".attn_post_norm.weight")
+            # Convert to the GGUF name expected by llama.cpp for post-attention norm.
+            if bid is None:
+                raise ValueError(f"Missing block id for tensor: {name}")
+            new_name = f"blk.{bid}.post_attention_norm.weight"
             yield new_name, data_torch
             return
         if name.endswith(".post_mlp_norm.weight"):
-            # Convert to standard post ffn norm name  
-            new_name = name.replace(".post_mlp_norm.weight", ".ffn_post_norm.weight")
+            # Convert to the GGUF name expected by llama.cpp for post-FFN norm.
+            if bid is None:
+                raise ValueError(f"Missing block id for tensor: {name}")
+            new_name = f"blk.{bid}.post_ffw_norm.weight"
             yield new_name, data_torch
             return
         
